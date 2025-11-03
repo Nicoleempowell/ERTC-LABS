@@ -106,8 +106,12 @@ static void MX_USART6_UART_Init(void);
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	printf("Interrupt on pin (%d).\n", GPIO_Pin);
+  uint8_t row;
+  uint8_t col;
+  HAL_StatusTypeDef status;
 
+	printf("Interrupt on pin (%d).\n", GPIO_Pin);
+  
 	if (GPIO_Pin == GPIO_PIN_4)
 	{
     /* Keypad interrupt */
@@ -117,6 +121,14 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      * If you don't read the registers, the interrupt will be NOT triggered again.
      * For an example of how to read/write the registers, see the Init_SX1509 function in the SX1509_Utils.h file.
      */
+    status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &row, 1, I2C_TIMEOUT);
+	  if (status != HAL_OK)
+	    printf("Cannot read the keypad row register (%X).\n", status);
+
+    status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &col, 1, I2C_TIMEOUT);
+    if (status != HAL_OK)
+      printf("Cannot read the keypad column register (%X).\n", status);
+
 	  printf("Interrupt from the keypad\n");
 	}
 
