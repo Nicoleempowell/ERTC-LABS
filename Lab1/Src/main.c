@@ -130,9 +130,23 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
       printf("Cannot read the keypad column register (%X).\n", status);
 
 	  printf("Interrupt from the keypad\n");
+
+    // Checking which key is pressed
+    int rowIndex = -1, colIndex = -1;
+
+    for (int i = 0; i < 4; i++) {
+        if (((row >> i) & 1) == 0) rowIndex = i;
+        if (((col >> i) & 1) == 0) colIndex = i;
+    }
+
+    if (rowIndex >= 0 && colIndex >= 0)
+            printf("Key pressed: %c\n", keypadLayout[rowIndex][colIndex]);
+        else
+            printf("Key not identified. row=0x%02X col=0x%02X\n", row, col);
 	}
  
 }
+
 
 /* USER CODE END 0 */
 
