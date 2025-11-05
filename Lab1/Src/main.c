@@ -134,6 +134,26 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
  
 }
 
+void ReadLineSensor(void)
+{
+    uint8_t lineData = 0xFF;
+    HAL_StatusTypeDef status;
+
+    // Read register REG_DATA_B (0x10) from SX1509_1 (addr 0x3E)
+    status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &lineData, 1, I2C_TIMEOUT);
+
+    if (status == HAL_OK)
+        printf("Line sensor value: 0x%02X\n", lineData);
+    else
+        printf("I2C error: %d\n", status);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6) // Verify it's our timer
+      ReadLineSensor()
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -187,6 +207,10 @@ int main(void)
   Init_SX1509();
 
   printf("Ready\n");
+
+  HAL_TIM_Base_Start_IT(&htim6);   // Start timer interrupts
+
+  printf("Timer started: reading line sensor every 100 ms\n");
 
   /* USER CODE END 2 */
 
