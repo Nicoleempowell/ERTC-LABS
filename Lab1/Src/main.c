@@ -148,6 +148,21 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 }
 
 
+void ReadLineSensor(void){
+  uint8_t lineData = 0xFF;
+  HAL_StatusTypeDef status;
+
+  status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR1 << 1, REG_DATA_B, 1, &lineData, 1, I2C_TIMEOUT);
+  if (status == HAL_OK)
+  {
+      printf("Line sensor value: 0x%02X\n", lineData);
+  }
+  else
+  {
+      printf("I2C read error! Status: %d\n", status);
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -166,6 +181,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
 
   /* USER CODE END Init */
 
@@ -209,6 +225,8 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+    ReadLineSensor(); // Get the current line sensor sate
+    HAL_Delay(100);   // Wait 100 ms before next reading
 
     /* USER CODE BEGIN 3 */
   }
