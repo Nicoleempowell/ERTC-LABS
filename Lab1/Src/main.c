@@ -123,11 +123,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
      */
     status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_1, 1, &col, 1, I2C_TIMEOUT);
 	  if (status != HAL_OK)
-	    printf("Cannot read the keypad row register (%X).\n", status);
+	    printf("Cannot read the keypad column register (%X).\n", status);
 
     status = HAL_I2C_Mem_Read(&hi2c1, SX1509_I2C_ADDR2 << 1, REG_KEY_DATA_2, 1, &row, 1, I2C_TIMEOUT);
     if (status != HAL_OK)
-      printf("Cannot read the keypad column register (%X).\n", status);
+      printf("Cannot read the keypad row register (%X).\n", status);
 
 	  printf("Interrupt from the keypad\n");
 
