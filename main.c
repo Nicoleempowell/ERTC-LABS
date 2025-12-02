@@ -43,9 +43,29 @@
 
 #define RPM2RADS	2*M_PI/60
 #define TIM_ARR_VALUE 3840
-#define dutyM1 0.35
-#define dutyM2 0.35
+// #define dutyM1 0.35
+// #define dutyM2 0.35
 static bool step_started = false;
+
+#define MAX_DUTY 0.5f
+static float w_ref1 = 8.0f;
+static float w_ref2 = 8.0f;
+
+static float Kp1 = 2.18f;    
+static float Ki1 = 10.4f;
+static float Kp2 = 2.14f;
+static float Ki2 = 10.09f;
+
+static float I1 = 0.0f;
+static float I2 = 0.0f;
+
+// antiwindup limits
+static const float I1_min = -5.8f;
+static const float I1_max =  5.8f;
+static const float I2_min = -5.8f;
+static const float I2_max =  5.8f;
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -183,57 +203,77 @@ struct datalog {
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+  static int kLed = 0;
+  static uint32_t TIM3_PrevCount = 0;
+  static uint32_t TIM4_PrevCount = 0;
+  static uint32_t delayCounter = 0;
 
-	static int kLed = 0;
-	static uint32_t TIM3_PrevCount = 0;
-	static uint32_t TIM4_PrevCount = 0;
-	static uint32_t delayCounter = 0;
+  if(htim->Instance == TIM6){
+    int32_t tim3Diff = ComputeDiffCount(&htim3, &TIM3_PrevCount, TIM3_ARR_VALUE);
+    int32_t tim4Diff = ComputeDiffCount(&htim4, &TIM4_PrevCount, TIM4_ARR_VALUE);
 
+    float w1 = (tim3Diff * 2.0f * 3.14159f) / (TIM3_ARR_VALUE * TS);
+    float w2 = (tim4Diff * 2.0f * 3.14159f) / (TIM4_ARR_VALUE * TS);
 
-	/* Speed ctrl routine */
-	if(htim->Instance == TIM6)
-	{
-		 int32_t tim3Diff = ComputeDiffCount(&htim3, &TIM3_PrevCount, TIM3_ARR_VALUE);
-		 int32_t tim4Diff = ComputeDiffCount(&htim4, &TIM4_PrevCount, TIM4_ARR_VALUE);
+    data.w1 = w1;
+    data.w2 = w2;
 
+    if (!step_started){
+      delayCounter++;
+      if (delayCounter >= 500){
+        step_started = true;
+      }
+    }
 
-	if (!step_started){
-		delayCounter++;
-		if (delayCounter >= 500) {
-			step_started = true;
-		}
-	}
+    float u1 = 0.0f;
+    float u2 = 0.0f;
 
+    if(step_started){
+      // PI regulator
+      float e1 = w_ref1 - w1;
+      float e2 = w_ref2 - w2;
 
-     if(step_started) {
-       Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, dutyM1); // Motor 1
-		   Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, dutyM2); // Motor 2
-		   data.u1 = dutyM1*VBATT;
-		   data.u2 = dutyM2*VBATT;
-     } else {
-       Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, 0.0f);
-		   Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, 0.0f);
-		   data.u1 = 0;
-		   data.u2 = 0;
-     }
+      I1 += Ki1 * e1 * TS;
+      I2 += Ki2 * e2 * TS;
 
+      // windup
+      if(I1 > I1_max) I1 = I1_max;
+      if(I1 < I1_min) I1 = I1_min;        
+      if(I2 > I2_max) I2 = I2_max;
+      if(I2 < I2_min) I2 = I2_min;
 
-     	/*	Prepare data packet */
-		data.w1 = (tim3Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
-		data.w2 = (tim4Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
-		//data.u1 = dutyM1*VBATT;
-		//data.u2 = dutyM2*VBATT;
+      u1 = Kp1 * e1 + I1;
+      u2 = Kp2 * e2 + I2;
 
-		ertc_dlog_send(&logger, &data, sizeof(data));
+      if(u1 > MAX_DUTY) u1 = MAX_DUTY;
+      if(u1 < -MAX_DUTY) u1 = -MAX_DUTY;
 
-		// Indicate that the program is running
-		if(++kLed >= 10)
-		{
-			kLed = 0;
-			HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-		}
-	}
+      if(u2 > MAX_DUTY) u2 = MAX_DUTY;
+      if(u2 < -MAX_DUTY) u2 = -MAX_DUTY;
+
+      Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, u1); 
+      Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, u2);
+
+      data.u1 = u1 * VBATT;
+      data.u2 = u2 * VBATT;
+    } else{
+      Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, 0.0f);
+      Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, 0.0f);
+
+      data.u1 = 0;
+      data.u2 = 0;
+    }
+
+    ertc_dlog_send(&logger, &data, sizeof(data));
+
+    if(++kLed >= 10)
+    {
+      kLed = 0;
+      HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    }
+  }
 }
+
 /* USER CODE END 0 */
 
 /**
