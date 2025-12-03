@@ -46,6 +46,23 @@
 #define dutyM1 0.35
 #define dutyM2 0.35
 static bool step_started = false;
+
+// lab3 macros
+#define W_MAX_RPM 160.0f
+#define W_MAX_RAD (W_MAX_RPM * RPM2RADS)
+#define U_MAX_V   6.0f // matches 50% duty limit in Motor_Drive
+
+#define REF_W1_RAD  8.0f
+#define REF_W2_RAD  8.0f
+
+static const float Kp1 =  2.18f;
+static const float Ki1 =  10.4f;
+static const float Kp2 =  2.14f;
+static const float Ki2 =  10.09f;
+
+// PI states
+static float e1_int = 0.0f;
+static float e2_int = 0.0f;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -189,42 +206,104 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	static uint32_t TIM4_PrevCount = 0;
 	static uint32_t delayCounter = 0;
 
-
-	/* Speed ctrl routine */
 	if(htim->Instance == TIM6)
 	{
 		 int32_t tim3Diff = ComputeDiffCount(&htim3, &TIM3_PrevCount, TIM3_ARR_VALUE);
 		 int32_t tim4Diff = ComputeDiffCount(&htim4, &TIM4_PrevCount, TIM4_ARR_VALUE);
 
 
-	if (!step_started){
-		delayCounter++;
-		if (delayCounter >= 500) {
-			step_started = true;
-		}
-	}
+	    if (!step_started)
+      {
+        delayCounter++;
+        if (delayCounter >= 500) 
+        {
+            step_started = true;
+            // reseter PI-integral
+            e1_int = 0.0f;
+            e2_int = 0.0f;
+        }
+    }
+         //if(step_started) {
+       //Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, dutyM1); // Motor 1
+		   //Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, dutyM2); // Motor 2
+		   //data.u1 = dutyM1*VBATT;
+		   //data.u2 = dutyM2*VBATT;
+    //} else {
+       //Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, 0.0f);
+		   //Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, 0.0f);
+		   //data.u1 = 0;
+		   //data.u2 = 0;
+     //}
 
-
-     if(step_started) {
-       Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, dutyM1); // Motor 1
-		   Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, dutyM2); // Motor 2
-		   data.u1 = dutyM1*VBATT;
-		   data.u2 = dutyM2*VBATT;
-     } else {
-       Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, 0.0f);
-		   Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, 0.0f);
-		   data.u1 = 0;
-		   data.u2 = 0;
-     }
-
-
-     	/*	Prepare data packet */
-		data.w1 = (tim3Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
-		data.w2 = (tim4Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
+    	/*	Prepare data packet */
+		//data.w1 = (tim3Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
+		//data.w2 = (tim4Diff*2*3.14)/(TIM3_ARR_VALUE*TS);
 		//data.u1 = dutyM1*VBATT;
 		//data.u2 = dutyM2*VBATT;
 
-		ertc_dlog_send(&logger, &data, sizeof(data));
+    float w1_meas = (tim3Diff * 2.0f * (float)M_PI) / (TIM3_ARR_VALUE * TS);
+    float w2_meas = (tim4Diff * 2.0f * (float)M_PI) / (TIM4_ARR_VALUE * TS);
+
+    float u1 = 0.0f;
+    float u2 = 0.0f;
+
+    if(step_started) 
+    {
+        float w1_ref = REF_W1_RAD;
+        float w2_ref = REF_W2_RAD;
+
+        // clamp references to max speed
+        if (w1_ref >  W_MAX_RAD) w1_ref =  W_MAX_RAD;
+        if (w1_ref < -W_MAX_RAD) w1_ref = -W_MAX_RAD;
+        if (w2_ref >  W_MAX_RAD) w2_ref =  W_MAX_RAD;
+        if (w2_ref < -W_MAX_RAD) w2_ref = -W_MAX_RAD;
+
+        // errors
+        float e1 = w1_ref - w1_meas;
+        float e2 = w2_ref - w2_meas;
+
+        // integrators with simple anti‑windup
+        e1_int += e1 * TS;
+        e2_int += e2 * TS;
+
+        const float I_MAX = U_MAX_V / Ki1;  // crude limit, tune if needed and add for Ki2 if different
+        if (e1_int >  I_MAX) e1_int =  I_MAX;
+        if (e1_int < -I_MAX) e1_int = -I_MAX;
+        if (e2_int >  I_MAX) e2_int =  I_MAX;
+        if (e2_int < -I_MAX) e2_int = -I_MAX;
+
+        // PI law -> voltage command
+        u1 = Kp1 * e1 + Ki1 * e1_int;
+        u2 = Kp2 * e2 + Ki2 * e2_int;
+
+        // saturate to allowed voltage
+        if (u1 >  U_MAX_V) u1 =  U_MAX_V;
+        if (u1 < -U_MAX_V) u1 = -U_MAX_V;
+        if (u2 >  U_MAX_V) u2 =  U_MAX_V;
+        if (u2 < -U_MAX_V) u2 = -U_MAX_V;
+    } 
+    else 
+    {
+        // before step: motors off
+        u1 = 0.0f;
+        u2 = 0.0f;
+    }
+
+    // convert voltage to duty command in [-1,1]
+    float duty1 = u1 / VBATT;
+    float duty2 = u2 / VBATT;
+
+    Motor_Drive(&htim8, TIM_CHANNEL_1, TIM_CHANNEL_2, duty1); // Motor 1
+    Motor_Drive(&htim8, TIM_CHANNEL_3, TIM_CHANNEL_4, duty2); // Motor 2
+
+    // log data
+    data.w1 = w1_meas;
+    data.w2 = w2_meas;
+    data.u1 = u1;
+    data.u2 = u2;
+
+    ertc_dlog_send(&logger, &data, sizeof(data));
+
 
 		// Indicate that the program is running
 		if(++kLed >= 10)
